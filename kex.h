@@ -92,7 +92,7 @@ struct Mac {
 	u_int	key_len;
 	int	type;
 	const EVP_MD	*evp_md;
-	HMAC_CTX	evp_ctx;
+	HMAC_CTX*	evp_ctx;
 	struct umac_ctx *umac_ctx;
 };
 struct Comp {

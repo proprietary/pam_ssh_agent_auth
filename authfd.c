@@ -367,13 +367,16 @@ ssh_get_next_identity(AuthenticationConnection *auth, char **comment, int versio
 	case 1:
 		key = pamsshagentauth_key_new(KEY_RSA1);
 		bits = pamsshagentauth_buffer_get_int(&auth->identities);
-		pamsshagentauth_buffer_get_bignum(&auth->identities, key->rsa->e);
-		pamsshagentauth_buffer_get_bignum(&auth->identities, key->rsa->n);
+		const BIGNUM *rsa_e = NULL, *rsa_n = NULL;
+		RSA_get0_key(key->rsa, &rsa_e, &rsa_n, NULL);
+		pamsshagentauth_buffer_get_bignum(&auth->identities, rsa_e);
+		pamsshagentauth_buffer_get_bignum(&auth->identities, rsa_n);
 		*comment = pamsshagentauth_buffer_get_string(&auth->identities, NULL);
-		keybits = BN_num_bits(key->rsa->n);
-		if (keybits < 0 || bits != (u_int)keybits)
+		keybits = BN_num_bits(rsa_n);
+		if (keybits < 0 || bits != (u_int)keybits) {
 			pamsshagentauth_logit("Warning: identity keysize mismatch: actual %d, announced %u",
-			    BN_num_bits(key->rsa->n), bits);
+			    BN_num_bits(rsa_n), bits);
+		}
 		break;
 	case 2:
 		blob = pamsshagentauth_buffer_get_string(&auth->identities, &blen);
@@ -417,9 +420,11 @@ ssh_decrypt_challenge(AuthenticationConnection *auth,
 	}
 	pamsshagentauth_buffer_init(&buffer);
 	pamsshagentauth_buffer_put_char(&buffer, SSH_AGENTC_RSA_CHALLENGE);
-	pamsshagentauth_buffer_put_int(&buffer, BN_num_bits(key->rsa->n));
-	pamsshagentauth_buffer_put_bignum(&buffer, key->rsa->e);
-	pamsshagentauth_buffer_put_bignum(&buffer, key->rsa->n);
+	const BIGNUM *rsa_e = NULL, *rsa_n = NULL;
+	RSA_get0_key(key, &rsa_e, &rsa_n, NULL);
+	pamsshagentauth_buffer_put_int(&buffer, BN_num_bits(rsa_n));
+	pamsshagentauth_buffer_put_bignum(&buffer, rsa_n);
+	pamsshagentauth_buffer_put_bignum(&buffer, rsa_n);
 	pamsshagentauth_buffer_put_bignum(&buffer, challenge);
 	pamsshagentauth_buffer_append(&buffer, session_id, 16);
 	pamsshagentauth_buffer_put_int(&buffer, response_type);
@@ -496,14 +501,19 @@ ssh_agent_sign(AuthenticationConnection *auth,
 static void
 ssh_encode_identity_rsa1(Buffer *b, RSA *key, const char *comment)
 {
-	pamsshagentauth_buffer_put_int(b, BN_num_bits(key->n));
-	pamsshagentauth_buffer_put_bignum(b, key->n);
-	pamsshagentauth_buffer_put_bignum(b, key->e);
-	pamsshagentauth_buffer_put_bignum(b, key->d);
+	const BIGNUM *rsa_n = NULL, *rsa_e = NULL, *rsa_d = NULL;
+	RSA_get0_key(key, &rsa_n, &rsa_e, &rsa_d);
+	pamsshagentauth_buffer_put_int(b, BN_num_bits(rsa_n));
+	pamsshagentauth_buffer_put_bignum(b, rsa_n);
+	pamsshagentauth_buffer_put_bignum(b, rsa_e);
+	pamsshagentauth_buffer_put_bignum(b, rsa_d);
+	const BIGNUM *rsa_iqmp = NULL, *rsa_p = NULL, *rsa_q = NULL;
+	RSA_get0_factors(key, &rsa_p, &rsa_q);
+	RSA_get0_crt_params(key, NULL, NULL, &rsa_iqmp);
 	/* To keep within the protocol: p < q for ssh. in SSL p > q */
-	pamsshagentauth_buffer_put_bignum(b, key->iqmp);	/* ssh key->u */
-	pamsshagentauth_buffer_put_bignum(b, key->q);	/* ssh key->p, SSL key->q */
-	pamsshagentauth_buffer_put_bignum(b, key->p);	/* ssh key->q, SSL key->p */
+	pamsshagentauth_buffer_put_bignum(b, rsa_iqmp);	/* ssh key->u */
+	pamsshagentauth_buffer_put_bignum(b, rsa_q);	/* ssh key->p, SSL key->q */
+	pamsshagentauth_buffer_put_bignum(b, rsa_p);	/* ssh key->q, SSL key->p */
 	pamsshagentauth_buffer_put_cstring(b, comment);
 }
 
@@ -511,21 +521,29 @@ static void
 ssh_encode_identity_ssh2(Buffer *b, Key *key, const char *comment)
 {
 	pamsshagentauth_buffer_put_cstring(b, key_ssh_name(key));
+	const BIGNUM *dsa_p = NULL, *dsa_q = NULL, *dsa_g = NULL, *dsa_pub_key = NULL, *dsa_priv_key = NULL;
+	const BIGNUM *rsa_n = NULL, *rsa_e = NULL, *rsa_d = NULL, *rsa_iqmp = NULL, *rsa_p = NULL, *rsa_q = NULL;
+
 	switch (key->type) {
 	case KEY_RSA:
-		pamsshagentauth_buffer_put_bignum2(b, key->rsa->n);
-		pamsshagentauth_buffer_put_bignum2(b, key->rsa->e);
-		pamsshagentauth_buffer_put_bignum2(b, key->rsa->d);
-		pamsshagentauth_buffer_put_bignum2(b, key->rsa->iqmp);
-		pamsshagentauth_buffer_put_bignum2(b, key->rsa->p);
-		pamsshagentauth_buffer_put_bignum2(b, key->rsa->q);
+		RSA_get0_key(key, &rsa_n, &rsa_e, &rsa_d);
+		RSA_get0_factors(key, &rsa_p, &rsa_q);
+		RSA_get0_crt_params(key, NULL, NULL, &rsa_iqmp);
+		pamsshagentauth_buffer_put_bignum2(b, rsa_n);
+		pamsshagentauth_buffer_put_bignum2(b, rsa_e);
+		pamsshagentauth_buffer_put_bignum2(b, rsa_d);
+		pamsshagentauth_buffer_put_bignum2(b, rsa_iqmp);
+		pamsshagentauth_buffer_put_bignum2(b, rsa_p);
+		pamsshagentauth_buffer_put_bignum2(b, rsa_q);
 		break;
 	case KEY_DSA:
-		pamsshagentauth_buffer_put_bignum2(b, key->dsa->p);
-		pamsshagentauth_buffer_put_bignum2(b, key->dsa->q);
-		pamsshagentauth_buffer_put_bignum2(b, key->dsa->g);
-		pamsshagentauth_buffer_put_bignum2(b, key->dsa->pub_key);
-		pamsshagentauth_buffer_put_bignum2(b, key->dsa->priv_key);
+		DSA_get0_key(key, &dsa_pub_key, &dsa_priv_key);
+		DSA_get0_pqg(key, &dsa_p, &dsa_q, &dsa_g);
+		pamsshagentauth_buffer_put_bignum2(b, dsa_p);
+		pamsshagentauth_buffer_put_bignum2(b, dsa_q);
+		pamsshagentauth_buffer_put_bignum2(b, dsa_g);
+		pamsshagentauth_buffer_put_bignum2(b, dsa_pub_key);
+		pamsshagentauth_buffer_put_bignum2(b, dsa_priv_key);
 		break;
 	}
 	pamsshagentauth_buffer_put_cstring(b, comment);
@@ -605,9 +623,11 @@ ssh_remove_identity(AuthenticationConnection *auth, Key *key)
 
 	if (key->type == KEY_RSA1) {
 		pamsshagentauth_buffer_put_char(&msg, SSH_AGENTC_REMOVE_RSA_IDENTITY);
-		pamsshagentauth_buffer_put_int(&msg, BN_num_bits(key->rsa->n));
-		pamsshagentauth_buffer_put_bignum(&msg, key->rsa->e);
-		pamsshagentauth_buffer_put_bignum(&msg, key->rsa->n);
+		const BIGNUM *rsa_n = NULL, *rsa_e = NULL;
+		RSA_get0_key(key, &rsa_n, &rsa_e, NULL);
+		pamsshagentauth_buffer_put_int(&msg, BN_num_bits(rsa_n));
+		pamsshagentauth_buffer_put_bignum(&msg, rsa_e);
+		pamsshagentauth_buffer_put_bignum(&msg, rsa_n);
 	} else if (key->type == KEY_DSA || key->type == KEY_RSA) {
 		pamsshagentauth_key_to_blob(key, &blob, &blen);
 		pamsshagentauth_buffer_put_char(&msg, SSH2_AGENTC_REMOVE_IDENTITY);

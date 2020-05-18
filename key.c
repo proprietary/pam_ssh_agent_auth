@@ -71,22 +71,16 @@ pamsshagentauth_key_new(int type)
 	case KEY_RSA:
 		if ((rsa = RSA_new()) == NULL)
 			pamsshagentauth_fatal("key_new: RSA_new failed");
-		if ((rsa->n = BN_new()) == NULL)
-			pamsshagentauth_fatal("key_new: BN_new failed");
-		if ((rsa->e = BN_new()) == NULL)
+		if (RSA_set0_key(rsa, BN_new(), BN_new(), BN_new()) == NULL)
 			pamsshagentauth_fatal("key_new: BN_new failed");
 		k->rsa = rsa;
 		break;
 	case KEY_DSA:
 		if ((dsa = DSA_new()) == NULL)
 			pamsshagentauth_fatal("key_new: DSA_new failed");
-		if ((dsa->p = BN_new()) == NULL)
+		if (DSA_set0_pgq(dsa, BN_new(), BN_new(), BN_new()) == NULL)
 			pamsshagentauth_fatal("key_new: BN_new failed");
-		if ((dsa->q = BN_new()) == NULL)
-			pamsshagentauth_fatal("key_new: BN_new failed");
-		if ((dsa->g = BN_new()) == NULL)
-			pamsshagentauth_fatal("key_new: BN_new failed");
-		if ((dsa->pub_key = BN_new()) == NULL)
+		if (DSA_set0_key(dsa, BN_new(), NULL) == NULL)
 			pamsshagentauth_fatal("key_new: BN_new failed");
 		k->dsa = dsa;
 		break;

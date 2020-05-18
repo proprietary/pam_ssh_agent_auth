@@ -151,7 +151,7 @@ pamsshagentauth_buffer_put_bignum2_ret(Buffer *buffer, const BIGNUM *value)
 		pamsshagentauth_buffer_put_int(buffer, 0);
 		return 0;
 	}
-	if (value->neg) {
+	if (BN_is_negative(value)) {
 		pamsshagentauth_logerror("buffer_put_bignum2_ret: negative numbers not supported");
 		return (-1);
 	}
